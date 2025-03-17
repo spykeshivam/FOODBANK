@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Page</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background: url('/static/church.jpg') no-repeat center center fixed;
+            background-size: cover;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .home-button {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: #007BFF;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .home-button:hover {
+            background-color: #0056b3;
+        }
+        .container {
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 400px;
+            text-align: center;
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .input-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        .input-group label {
+            display: block;
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        .input-group input {
+            width: calc(100% - 100px);
+            padding: 10px;
+            margin-right: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .input-group button {
+            padding: 10px 15px;
+            font-size: 14px;
+            color: white;
+            background-color: #007BFF;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .input-group button:hover {
+            background-color: #0056b3;
+        }
+        .results {
+            margin-top: 20px;
+            text-align: left;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-button">Home Page</a>
+    <div class="container">
+        <h1>Search for User</h1>
+        <form method="POST" action="/search_user">
+            <div class="input-group">
+                <label for="name">First or Last Name</label>
+                <input type="text" id="name" name="name" placeholder="Enter Name">
+                <button type="submit" name="search_type" value="name">Search</button>
+            </div>
+            <div class="input-group">
+                <label for="postcode">Postcode</label>
+                <input type="text" id="postcode" name="postcode" placeholder="Enter Postcode">
+                <button type="submit" name="search_type" value="postcode">Search</button>
+            </div>
+            <div class="input-group">
+                <label for="dob">Date of Birth</label>
+                <input type="text" id="dob" name="dob" placeholder="Enter Date of Birth (DD/MM/YYYY)">
+                <button type="submit" name="search_type" value="dob">Search</button>
+            </div>
+        </form>
+        <div class="results">
+            {% if results %}
+                <h2>Search Results:</h2>
+                <ul>
+                    {% for result in results %}
+                        <li>{{ result }}</li>
+                    {% endfor %}
+                </ul>
+            {% elif message %}
+                <p>{{ message }}</p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

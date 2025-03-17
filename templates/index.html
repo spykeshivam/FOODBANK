@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check User</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background: url('/static/church.jpg') no-repeat center center fixed;
+            background-size: cover;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .home-button {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: #007BFF;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .home-button:hover {
+            background-color: #0056b3;
+        }
+        .container {
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 50px;
+            border-radius: 10px;
+            box-shadow: 100 4px 6px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            width: 100%;
+            max-width: 400px;
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        form {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 15px;
+            font-size: 16px;
+            color: white;
+            background-color: #007BFF;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #message {
+            margin-top: 20px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .user-details {
+            margin-top: 20px;
+            font-size: 14px;
+            text-align: left;
+        }
+    </style>
+    <script>
+        function checkUser(event) {
+            event.preventDefault();
+            const userId = document.getElementById("user_id").value;
+
+            fetch("/check_user", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: `user_id=${userId}`,
+            })
+                .then((response) => response.json())
+                .then((data) => {
+                    const messageDiv = document.getElementById("message");
+                    const detailsDiv = document.getElementById("user-details");
+                    const loginButton = document.getElementById("login-button");
+
+                    if (data.exists) {
+                        messageDiv.textContent = data.message;
+                        messageDiv.style.color = "green";
+                        detailsDiv.innerHTML = `
+                            <p><strong>First Name:</strong> ${data.details["First Name"]}</p>
+                            <p><strong>Last Name:</strong> ${data.details["Last Name"]}</p>
+                            <p><strong>Date of Birth:</strong> ${data.details["Date of Birth"]}</p>
+                            <p><strong>Number of Adults in Household:</strong> ${data.details["Number of Adults in Household"]}</p>
+                            <p><strong>Number of Children in Household:</strong> ${data.details["Number of Children in Household"]}</p>
+                            <p><strong>Last Login Date:</strong> ${data.details["Last Login Date"]}</p>
+                        `;
+                        loginButton.style.display = "block";
+                        loginButton.onclick = () => logLogin(userId);
+                    } else {
+                        messageDiv.textContent = data.message;
+                        messageDiv.style.color = "red";
+                        detailsDiv.innerHTML = "";
+                        loginButton.style.display = "none";
+                    }
+                })
+                .catch((error) => {
+                    console.error("Error:", error);
+                });
+        }
+
+        function logLogin(userId) {
+            fetch("/log_login", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: `user_id=${userId}`,
+            })
+                .then((response) => response.json())
+                .then((data) => {
+                    alert(data.message);
+                })
+                .catch((error) => {
+                    console.error("Error:", error);
+                });
+        }
+    </script>
+</head>
+<body>
+    <a href="/" class="home-button">Home Page</a>
+    <div class="container">
+        <h1>Check User Details</h1>
+        <form onsubmit="checkUser(event)">
+            <label for="user_id">Enter Username:</label>
+            <input type="text" id="user_id" name="user_id" required>
+            <button type="submit">Check</button>
+        </form>
+        <div id="message"></div>
+        <div id="user-details" class="user-details"></div>
+        <button id="login-button" style="display: none;">Login</button>
+    </div>
+</body>
+</html>
