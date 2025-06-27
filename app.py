@@ -24,7 +24,7 @@ CREDS = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
 CLIENT = gspread.authorize(CREDS)
 
 #Registration Google Sheet ID and Initialization
-SHEET_ID = "1UpWbPBlm2F65jYJgToJ_Ucac-5WHaOzVnEpi4osTMgQ"
+SHEET_ID = ""
 SHEET = CLIENT.open_by_key(SHEET_ID)
 ROWS = SHEET.sheet1.get_all_records()  #Retrieve all rows as dictionaries
 USERNAME_VALUES = {row["Username"].strip(): row for row in ROWS}  
@@ -33,7 +33,7 @@ USERNAME_COUNT = len(USERNAME_VALUES)
 print(f"Total unique usernames: {USERNAME_COUNT}")
 
 #Initialize Login Sheet 
-LOGIN_SHEET_ID = "1o1OPr8DEDXs11BAUR9TalDFKa0EAd5m287jvzawOtUw"
+LOGIN_SHEET_ID = ""
 SECOND_SHEET = CLIENT.open_by_key(LOGIN_SHEET_ID)
 LOGIN_ROWS = SECOND_SHEET.sheet1.get_all_records()
 
