@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check User</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        /* Page specific overrides can stay here, but keep them minimal */
+        .user-details { text-align: left; margin-top: 20px; }
+        #message { font-weight: bold; margin-top: 20px; }
+    </style>
+    <script>
+        function checkUser(event) {
+            event.preventDefault();
+            const userId = document.getElementById("user_id").value;
+
+            fetch("/check_user", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: `user_id=${userId}`,
+            })
+            .then(response => response.json())
+            .then(data => {
+                const messageDiv = document.getElementById("message");
+                const detailsDiv = document.getElementById("user-details");
+                const loginButton = document.getElementById("login-button");
+
+                if (data.exists) {
+                    messageDiv.textContent = data.message;
+                    messageDiv.style.color = "green";
+                    // Using template literals to inject data safely
+                    detailsDiv.innerHTML = `
+                        <p><strong>First Name:</strong> ${data.details["First Name"]}</p>
+                        <p><strong>Last Name:</strong> ${data.details["Last Name"]}</p>
+                        <p><strong>Last Login Date:</strong> ${data.details["Last Login Date"]}</p>
+                    `;
+                    loginButton.style.display = "inline-block";
+                    // Pass the ID to the login function
+                    loginButton.onclick = () => logLogin(userId);
+                } else {
+                    messageDiv.textContent = data.message;
+                    messageDiv.style.color = "red";
+                    detailsDiv.innerHTML = "";
+                    loginButton.style.display = "none";
+                }
+            })
+            .catch(error => console.error("Error:", error));
+        }
+
+        function logLogin(userId) {
+            const loginButton = document.getElementById("login-button");
+            
+            // BEST PRACTICE: Frontend Debounce/Disable
+            // Immediately disable button to prevent double-clicks
+            loginButton.disabled = true;
+            loginButton.textContent = "Logging in...";
+
+            fetch("/log_login", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: `user_id=${userId}`,
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                // Re-enable button or redirect after success
+                loginButton.disabled = false; 
+                loginButton.textContent = "Login";
+                
+                if(data.success) {
+                   // Optional: Clear search or redirect
+                   document.getElementById("user_id").value = "";
+                   document.getElementById("user-details").innerHTML = "";
+                   document.getElementById("message").textContent = "";
+                   loginButton.style.display = "none";
+                }
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                loginButton.disabled = false;
+                loginButton.textContent = "Login";
+            });
+        }
+    </script>
+</head>
+<body>
+    <a href="/" class="home-button">Home Page</a>
+    <div class="container" style="max-width: 400px;"> <h1>Check User Details</h1>
+        <form onsubmit="checkUser(event)">
+            <label for="user_id">Enter Username:</label>
+            <input type="text" id="user_id" name="user_id" required 
+                   style="width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box;">
+            <button type="submit" class="tab">Check</button>
+        </form>
+        <div id="message"></div>
+        <div id="user-details" class="user-details"></div>
+        <button id="login-button" class="tab" style="display: none; margin-top: 20px;">Login</button>
+    </div>
+</body>
+</html>

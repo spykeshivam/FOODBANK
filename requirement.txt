@@ -1,0 +1,8 @@
+Flask
+gspread
+google-auth
+pandas
+matplotlib
+pytest
+dash
+plotly
