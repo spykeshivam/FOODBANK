@@ -12,7 +12,6 @@ from services.dashboard_utils import (
     ensure_datetime_series,
     find_column,
     parse_timestamps,
-    resample_counts,
 )
 
 
