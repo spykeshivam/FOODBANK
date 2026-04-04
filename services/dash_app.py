@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Dash, dcc, html, Input, Output, State
+from dash import Dash, dcc, html, Input, Output, State, MATCH
 
 from services import data_service
 from services.dashboard_utils import (
@@ -12,6 +12,7 @@ from services.dashboard_utils import (
     ensure_datetime_series,
     find_column,
     parse_timestamps,
+    resample_counts,
 )
 
 
@@ -61,11 +62,26 @@ def _graph_card(graph_id, title, description):
             html.Div(
                 [
                     html.Span(title, className="card-title"),
-                    _info_icon(description),
+                    html.Div(
+                        [
+                            _info_icon(description),
+                            html.Button(
+                                "−",
+                                id={"type": "minimize-btn", "index": graph_id},
+                                className="minimize-btn",
+                                title="Minimize",
+                                n_clicks=0,
+                            ),
+                        ],
+                        className="card-actions",
+                    ),
                 ],
                 className="card-header",
             ),
-            dcc.Graph(id=graph_id),
+            html.Div(
+                dcc.Graph(id=graph_id),
+                id={"type": "graph-container", "index": graph_id},
+            ),
         ],
         className="graph-card",
     )
@@ -256,14 +272,6 @@ def _work_status(users_df):
     return _value_counts_chart(users_df, work_col, "Right to Work Status", chart_type="pie")
 
 
-def _referral_sources(users_df):
-    ref_col = find_column(
-        users_df,
-        ["How did you hear about us?", "Referral Source", "Referral"],
-        contains=True,
-    )
-    return _value_counts_chart(users_df, ref_col, "Referral Sources")
-
 
 def _contact_agreement(users_df):
     contact_col = find_column(
@@ -300,7 +308,6 @@ def build_plot_figure(plot_key, users_df, logins_df, granularity="daily"):
         "age_distribution": lambda: _age_distribution(users_df),
         "ethnicity_distribution": lambda: _ethnicity_distribution(users_df),
         "work_status": lambda: _work_status(users_df),
-        "referral_sources": lambda: _referral_sources(users_df),
         "contact_agreement": lambda: _contact_agreement(users_df),
         "english_ability": lambda: _english_ability(users_df),
     }
@@ -335,6 +342,36 @@ def _age_distribution(users_df):
         labels={"Age": "Age", "count": "Users"},
     )
     return _apply_layout(fig, title=title, x_label="Age", y_label="Users")
+
+
+def _area_distribution(users_df):
+    title = "Visitor Area Distribution"
+    postcode_col = find_column(users_df, ["Postcode", "Post Code", "PostCode"], contains=True)
+    if not postcode_col or users_df.empty:
+        return _empty_figure(title)
+
+    outward = (
+        users_df[postcode_col]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .str.split(" ")
+        .str[0]
+    )
+    outward = outward[outward != ""]
+    if outward.empty:
+        return _empty_figure(title)
+
+    counts = outward.value_counts().sort_values(ascending=False)
+    fig = px.bar(
+        x=counts.index.astype(str),
+        y=counts.values,
+        title=title,
+        labels={"x": "Outward Code", "y": "Visitors"},
+    )
+    fig.update_xaxes(type="category", tickangle=45, categoryorder="total descending")
+    return _apply_layout(fig, title=title, x_label="Outward Code", y_label="Visitors")
 
 
 def _household_adults_children(users_df):
@@ -537,6 +574,7 @@ def init_dashboard_dash(server):
             dcc.Store(id="users-store"),
             dcc.Store(id="logins-store"),
             dcc.Store(id="first-logins-store"),
+            dcc.Store(id="total-users-store"),
             html.Div(
                 [
                     html.Div(
@@ -699,6 +737,11 @@ def init_dashboard_dash(server):
                                         "Total Household Size",
                                         "Combined household size (adults + children).",
                                     ),
+                                    _graph_card(
+                                        "area-chart",
+                                        "Visitor Area Distribution",
+                                        "Number of visitors per outward postcode (e.g. E14, SW1).",
+                                    ),
                                 ],
                                 className="dash-grid",
                             )
@@ -717,16 +760,6 @@ def init_dashboard_dash(server):
                                         "New vs Returning Logins",
                                         "Logins classified by whether it is the user's first login.",
                                     ),
-                                    _graph_card(
-                                        "cohort-heatmap",
-                                        "Cohort Retention",
-                                        "Percent of each registration cohort active in later months.",
-                                    ),
-                                    _graph_card(
-                                        "referral-chart",
-                                        "Referral Sources",
-                                        "How users heard about the service.",
-                                    ),
                                 ],
                                 className="dash-grid",
                             )
@@ -742,6 +775,7 @@ def init_dashboard_dash(server):
         Output("users-store", "data"),
         Output("logins-store", "data"),
         Output("first-logins-store", "data"),
+        Output("total-users-store", "data"),
         Input("apply-filters", "n_clicks"),
         State("date-range", "start_date"),
         State("date-range", "end_date"),
@@ -751,6 +785,12 @@ def init_dashboard_dash(server):
 
         users_df = parse_timestamps(users_df, USERS_TS_COL, USERS_PARSED_COL)
         logins_df = parse_timestamps(logins_df, LOGINS_TS_COL, LOGINS_PARSED_COL)
+
+        # Total ever-registered users — computed before date filtering
+        if USERNAME_COL in users_df.columns:
+            total_users_all_time = int(users_df[USERNAME_COL].nunique())
+        else:
+            total_users_all_time = len(users_df)
 
         first_login_map = {}
         if USERNAME_COL in logins_df.columns:
@@ -763,7 +803,7 @@ def init_dashboard_dash(server):
         users_filtered = apply_date_range(users_df, USERS_PARSED_COL, start_date, end_date)
         logins_filtered = apply_date_range(logins_df, LOGINS_PARSED_COL, start_date, end_date)
 
-        return _serialize_df(users_filtered), _serialize_df(logins_filtered), first_login_map
+        return _serialize_df(users_filtered), _serialize_df(logins_filtered), first_login_map, total_users_all_time
 
     @app.callback(
         Output("kpi-total-users", "children"),
@@ -775,16 +815,14 @@ def init_dashboard_dash(server):
         Output("logins-trend", "figure"),
         Input("users-store", "data"),
         Input("logins-store", "data"),
+        Input("total-users-store", "data"),
         Input("granularity", "value"),
     )
-    def update_overview(users_payload, logins_payload, granularity):
+    def update_overview(users_payload, logins_payload, total_users_all_time, granularity):
         users_df = _deserialize_df(users_payload)
         logins_df = _deserialize_df(logins_payload)
 
-        if USERNAME_COL in users_df.columns:
-            total_users = users_df[USERNAME_COL].nunique()
-        else:
-            total_users = len(users_df)
+        total_users = total_users_all_time or 0
 
         new_registrations = len(users_df)
         total_logins = len(logins_df)
@@ -835,6 +873,7 @@ def init_dashboard_dash(server):
         Output("dietary-chart", "figure"),
         Output("household-chart", "figure"),
         Output("household-total-chart", "figure"),
+        Output("area-chart", "figure"),
         Input("users-store", "data"),
     )
     def update_people_needs(users_payload):
@@ -862,6 +901,7 @@ def init_dashboard_dash(server):
 
         household_fig, adult_col, child_col = _household_adults_children(users_df)
         household_total_fig = _household_total(users_df, adult_col, child_col)
+        area_fig = _area_distribution(users_df)
 
         return (
             gender_fig,
@@ -870,26 +910,34 @@ def init_dashboard_dash(server):
             dietary_fig,
             household_fig,
             household_total_fig,
+            area_fig,
         )
 
     @app.callback(
         Output("new-returning-chart", "figure"),
-        Output("cohort-heatmap", "figure"),
-        Output("referral-chart", "figure"),
         Input("users-store", "data"),
         Input("logins-store", "data"),
         Input("first-logins-store", "data"),
         Input("granularity", "value"),
     )
     def update_engagement(users_payload, logins_payload, first_logins_map, granularity):
-        users_df = _deserialize_df(users_payload)
         logins_df = _deserialize_df(logins_payload)
 
-        new_returning_fig = _new_vs_returning(logins_df, first_logins_map or {}, granularity)
-        cohort_fig = _cohort_retention(users_df, logins_df)
+        return _new_vs_returning(logins_df, first_logins_map or {}, granularity)
 
-        referral_col = find_column(users_df, ["How did you hear about us?", "Referral Source", "Referral"], contains=True)
-        referral_fig = _value_counts_chart(users_df, referral_col, "Referral Sources")
-        return new_returning_fig, cohort_fig, referral_fig
+    app.clientside_callback(
+        """
+        function(n_clicks) {
+            if (n_clicks % 2 === 1) {
+                return [{"display": "none"}, "+"];
+            }
+            return [{"display": "block"}, "\u2212"];
+        }
+        """,
+        Output({"type": "graph-container", "index": MATCH}, "style"),
+        Output({"type": "minimize-btn", "index": MATCH}, "children"),
+        Input({"type": "minimize-btn", "index": MATCH}, "n_clicks"),
+        prevent_initial_call=True,
+    )
 
     return app

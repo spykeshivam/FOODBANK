@@ -25,23 +25,35 @@
                 const messageDiv = document.getElementById("message");
                 const detailsDiv = document.getElementById("user-details");
                 const loginButton = document.getElementById("login-button");
+                const postcodeWarning = document.getElementById("postcode-warning");
 
                 if (data.exists) {
                     messageDiv.textContent = data.message;
                     messageDiv.style.color = "green";
-                    // Using template literals to inject data safely
                     detailsDiv.innerHTML = `
                         <p><strong>First Name:</strong> ${data.details["First Name"]}</p>
                         <p><strong>Last Name:</strong> ${data.details["Last Name"]}</p>
                         <p><strong>Last Login Date:</strong> ${data.details["Last Login Date"]}</p>
                     `;
-                    loginButton.style.display = "inline-block";
-                    // Pass the ID to the login function
-                    loginButton.onclick = () => logLogin(userId);
+
+                    if (data.postcode_valid === false) {
+                        postcodeWarning.style.display = "block";
+                        loginButton.textContent = "Update Postcode";
+                        loginButton.style.display = "inline-block";
+                        loginButton.onclick = () => {
+                            window.location.href = `/update_postcode?user_id=${encodeURIComponent(userId)}`;
+                        };
+                    } else {
+                        postcodeWarning.style.display = "none";
+                        loginButton.textContent = "Login";
+                        loginButton.style.display = "inline-block";
+                        loginButton.onclick = () => logLogin(userId);
+                    }
                 } else {
                     messageDiv.textContent = data.message;
                     messageDiv.style.color = "red";
                     detailsDiv.innerHTML = "";
+                    postcodeWarning.style.display = "none";
                     loginButton.style.display = "none";
                 }
             })
@@ -94,6 +106,10 @@
             <button type="submit" class="tab">Check</button>
         </form>
         <div id="message"></div>
+        <div id="postcode-warning" style="display:none; margin-top:14px; padding:10px 14px;
+             background:#fff3cd; border:1px solid #ffc107; border-radius:8px; color:#856404; font-size:14px;">
+            ⚠️ The postcode on your account is missing or invalid. Please update it before logging in.
+        </div>
         <div id="user-details" class="user-details"></div>
         <button id="login-button" class="tab" style="display: none; margin-top: 20px;">Login</button>
     </div>

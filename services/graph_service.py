@@ -1,249 +1,360 @@
 import matplotlib
-# Use Agg backend for non-GUI server environments
-matplotlib.use('Agg') 
-from matplotlib.figure import Figure 
+matplotlib.use('Agg')
+from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.backends.backend_pdf import PdfPages
-import matplotlib.image as mpimg
+import matplotlib.patches as mpatches
 import pandas as pd
 import io
-import base64
 
-def _fig_to_base64(fig):
-    """Helper to convert a Matplotlib Figure object to a base64 string."""
-    img = io.BytesIO()
-    # Use FigureCanvas to save the figure without using pyplot
-    FigureCanvas(fig).print_png(img)
-    img.seek(0)
-    return base64.b64encode(img.getvalue()).decode()
+from services.dashboard_utils import find_column, parse_timestamps
 
-def generate_dashboard_plots(users_df, logins_df):
-    """
-    Generates dashboard plots using strictly object-oriented Matplotlib.
-    """
-    graphs = {}
+# Consistent colour palette matching the Plotly dashboard
+_BLUE   = '#636EFA'
+_RED    = '#EF553B'
+_GREEN  = '#00CC96'
+_PURPLE = '#AB63FA'
+_ORANGE = '#FFA15A'
 
-    # 1. Gender Distribution
-    if 'Sex' in users_df.columns:
-        fig = Figure(figsize=(6, 6))
-        ax = fig.add_subplot(111)
-        
-        gender_counts = users_df['Sex'].value_counts()
-        ax.pie(gender_counts, labels=gender_counts.index, autopct='%1.1f%%', startangle=90, colors=['lightblue', 'pink'])
-        ax.set_title('Gender Distribution')
-        
-        graphs['gender_data'] = _fig_to_base64(fig)
-    
-    # 2. Login Activity (Last 3 Active Days)
-    df_log = logins_df.copy()
-    # Standardize timestamp columns
-    df_log['Parsed'] = pd.to_datetime(df_log['Timestamp'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
-    df_log['Parsed'] = df_log['Parsed'].fillna(pd.to_datetime(df_log['Timestamp'], format='%m/%d/%Y %H:%M:%S', errors='coerce'))
-    df_log = df_log.dropna(subset=['Parsed'])
-    
-    if not df_log.empty:
-        df_log['Date'] = df_log['Parsed'].dt.date
-        last_3 = df_log['Date'].drop_duplicates().sort_values(ascending=False).head(3)
-        counts = df_log[df_log['Date'].isin(last_3)].groupby('Date').size().sort_index()
 
-        fig = Figure(figsize=(8, 6))
-        ax = fig.add_subplot(111)
-        
-        bars = ax.bar(counts.index.astype(str), counts.values, color='dodgerblue', edgecolor='black')
-        ax.set_title('Login Activity (Last 3 Active Days)')
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Login Count')
-        ax.tick_params(axis='x', rotation=45)
-        
-        # Add text labels
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height, f'{int(height)}', ha='center', va='bottom')
-            
-        fig.tight_layout()
-        graphs['login_data'] = _fig_to_base64(fig)
-    else:
-        # Fallback empty plot if no data
-        fig = Figure(figsize=(8, 6))
-        graphs['login_data'] = _fig_to_base64(fig)
+# ── internal helpers ───────────────────────────────────────────────────────
 
-    # 3. Age Distribution
-    if 'Date of Birth' in users_df.columns:
-        users_df['DOB_Parsed'] = pd.to_datetime(users_df['Date of Birth'], errors='coerce')
-        users_df['Age'] = (pd.Timestamp.now() - users_df['DOB_Parsed']).dt.days // 365
-        
-        fig = Figure(figsize=(8, 6))
-        ax = fig.add_subplot(111)
-        ax.hist(users_df['Age'].dropna(), bins=10, color='skyblue', edgecolor='black')
-        ax.set_title('Age Distribution')
-        ax.set_xlabel('Age')
-        ax.set_ylabel('Users')
-        
-        graphs['age_data'] = _fig_to_base64(fig)
+def _parse_logins_timestamps(logins_df):
+    """Return logins_df with a 'Parsed' datetime column, dropping unparseable rows."""
+    if 'Timestamp' not in logins_df.columns:
+        return pd.DataFrame()
+    return parse_timestamps(logins_df.copy(), 'Timestamp', 'Parsed').dropna(subset=['Parsed'])
 
-    # 4. Ethnicity Distribution
-    if 'Ethnicity' in users_df.columns:
-        ethnicity_counts = users_df['Ethnicity'].value_counts()
-        
-        fig = Figure(figsize=(10, 8))
-        ax = fig.add_subplot(111)
-        # Using simple bar for object-oriented approach
-        ax.bar(ethnicity_counts.index.astype(str), ethnicity_counts.values, color='lightcoral', edgecolor='black')
-        ax.set_title('Ethnicity Distribution')
-        ax.set_xlabel('Ethnicity')
-        ax.set_ylabel('Number of Users')
-        # Rotate x labels for better readability
-        ax.tick_params(axis='x', rotation=45) 
-        
-        fig.tight_layout()
-        graphs['ethnicity_data'] = _fig_to_base64(fig)
 
-    # 5. Right to Work Status
-    col_work = 'Right to work in the UK for yourself'
-    if col_work in users_df.columns:
-        work_counts = users_df[col_work].value_counts()
-        
-        fig = Figure(figsize=(8, 6))
-        ax = fig.add_subplot(111)
-        ax.pie(work_counts, labels=work_counts.index, autopct='%1.1f%%', startangle=90, colors=['gold', 'lightgreen', 'lightblue'])
-        ax.set_title('Right to Work Status')
-        
-        graphs['work_data'] = _fig_to_base64(fig)
+def _section_page(title):
+    """A full-page section divider with a coloured banner and the section title."""
+    fig = Figure(figsize=(8.5, 11))
+    ax = fig.add_subplot(111)
+    fig.patch.set_facecolor('white')
 
-    # 6. Referral Sources
-    col_ref = 'How did you hear about us?'
-    if col_ref in users_df.columns:
-        ref_counts = users_df[col_ref].value_counts()
-        
-        fig = Figure(figsize=(10, 8))
-        ax = fig.add_subplot(111)
-        ax.bar(ref_counts.index.astype(str), ref_counts.values, color='plum', edgecolor='black')
-        ax.set_title('Referral Sources')
-        ax.set_xlabel('Source')
-        ax.set_ylabel('Number of Users')
-        ax.tick_params(axis='x', rotation=45)
-        
-        fig.tight_layout()
-        graphs['referral_data'] = _fig_to_base64(fig)
+    # Coloured banner across the top third
+    ax.axhspan(0.6, 1.0, xmin=0, xmax=1, color='#0b2a5b', zorder=0)
 
-    # 7. Contact Agreement
-    col_contact = 'Are you happy for us to contact you via email/WhatsApp about other services?'
-    if col_contact in users_df.columns:
-        contact_counts = users_df[col_contact].value_counts()
-        
-        fig = Figure(figsize=(8, 6))
-        ax = fig.add_subplot(111)
-        ax.pie(contact_counts, labels=contact_counts.index, autopct='%1.1f%%', startangle=90, colors=['lightgreen', 'lightcoral'])
-        ax.set_title('Contact Agreement')
-        
-        graphs['contact_data'] = _fig_to_base64(fig)
+    ax.text(0.5, 0.78, title,
+            ha='center', va='center',
+            fontsize=34, fontweight='bold', color='white',
+            transform=ax.transAxes)
 
-    # 8. Registration Activity (Last 3 Active Days)
-    # Similar logic to Login Activity but using users_df
-    df_reg = users_df.copy()
-    if 'Timestamp' in df_reg.columns:
-        # Clean Timestamp
-        df_reg['Parsed'] = pd.to_datetime(df_reg['Timestamp'], format='%m/%d/%Y %H:%M:%S', errors='coerce')
-        # Fallback format if needed
-        df_reg['Parsed'] = df_reg['Parsed'].fillna(pd.to_datetime(df_reg['Timestamp'], format='%Y-%m-%d %H:%M:%S', errors='coerce'))
-        df_reg = df_reg.dropna(subset=['Parsed'])
-        
-        if not df_reg.empty:
-            df_reg['Date'] = df_reg['Parsed'].dt.date
-            last_3_reg = df_reg['Date'].drop_duplicates().sort_values(ascending=False).head(3)
-            reg_counts = df_reg[df_reg['Date'].isin(last_3_reg)].groupby('Date').size().sort_index()
+    ax.text(0.5, 0.42,
+            'Foodbank Dashboard Report',
+            ha='center', va='center',
+            fontsize=14, color='#4c5870',
+            transform=ax.transAxes)
 
-            fig = Figure(figsize=(8, 6))
-            ax = fig.add_subplot(111)
-            bars = ax.bar(reg_counts.index.astype(str), reg_counts.values, color='dodgerblue', edgecolor='black')
-            ax.set_title('Registration Activity (Last 3 Active Days)')
-            ax.set_xlabel('Date')
-            ax.set_ylabel('Registration Count')
-            ax.tick_params(axis='x', rotation=45)
+    ax.axis('off')
+    return fig
 
-            for bar in bars:
-                height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width()/2., height, f'{int(height)}', ha='center', va='bottom')
-            
-            fig.tight_layout()
-            graphs['registration_data'] = _fig_to_base64(fig)
 
-    # 9. Total Login Activity (Line Chart)
-    if not df_log.empty:
-        # Group by date for all available dates
-        daily_logins = df_log.groupby('Date').size().sort_index()
-        
-        fig = Figure(figsize=(10, 6))
-        ax = fig.add_subplot(111)
-        # Convert date index to string to avoid potential matplotlib date converter issues in thread-safe mode
-        ax.plot(daily_logins.index.astype(str), daily_logins.values, marker='o', linestyle='-')
-        
-        # Add text labels for points
-        for x, y in zip(daily_logins.index.astype(str), daily_logins.values):
-            ax.text(x, y + 0.1, str(y), ha='center', va='bottom', fontsize=10)
+def _save(fig, pdf):
+    """Render a Figure to the PdfPages object."""
+    FigureCanvas(fig)
+    pdf.savefig(fig)
 
-        ax.set_title('Login Activity Total')
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Login Count')
-        ax.grid(True)
-        # Autoformat date labels is tricky without pyplot, simple rotation is safer
-        ax.tick_params(axis='x', rotation=45)
-        
-        fig.tight_layout()
-        graphs['login_data_fin'] = _fig_to_base64(fig)
-        
-    # 10. English Speaking Ability
-    col_eng = 'How would you rate your ability in speaking English?'
-    if col_eng in users_df.columns:
-        eng_counts = users_df[col_eng].value_counts()
-        
-        fig = Figure(figsize=(8, 6))
-        ax = fig.add_subplot(111)
-        # Use simple bar chart
-        ax.bar(eng_counts.index.astype(str), eng_counts.values, color='lightgreen', edgecolor='black')
-        ax.set_title('English Speaking Ability')
-        ax.set_xlabel('Rating')
-        ax.set_ylabel('Number of Users')
-        
-        graphs['english_data'] = _fig_to_base64(fig)
 
-    return graphs
+# ── Section 1: Overview ────────────────────────────────────────────────────
 
+def _registrations_trend(users_df):
+    ts_col = find_column(users_df, ['Timestamp'], contains=True)
+    if not ts_col or users_df.empty:
+        return None
+    df = users_df.copy()
+    df['Parsed'] = pd.to_datetime(df[ts_col], errors='coerce')
+    df = df.dropna(subset=['Parsed'])
+    if df.empty:
+        return None
+
+    counts = df.groupby(df['Parsed'].dt.date).size().sort_index()
+
+    fig = Figure(figsize=(10, 5))
+    ax = fig.add_subplot(111)
+    bars = ax.bar(counts.index.astype(str), counts.values, color=_BLUE, edgecolor='white')
+    for bar in bars:
+        h = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, h + 0.05, str(int(h)),
+                ha='center', va='bottom', fontsize=8)
+    ax.set_title('Registrations Trend', fontweight='bold', pad=12)
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Registrations')
+    ax.tick_params(axis='x', rotation=45)
+    ax.spines[['top', 'right']].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+
+def _logins_trend(logins_df):
+    df = _parse_logins_timestamps(logins_df)
+    if df.empty:
+        return None
+
+    counts = df.groupby(df['Parsed'].dt.date).size().sort_index()
+
+    fig = Figure(figsize=(10, 5))
+    ax = fig.add_subplot(111)
+    ax.plot(counts.index.astype(str), counts.values, marker='o', color=_BLUE, linewidth=2)
+    for x, y in zip(counts.index.astype(str), counts.values):
+        ax.text(x, y + 0.2, str(y), ha='center', va='bottom', fontsize=8)
+    ax.set_title('Logins Trend', fontweight='bold', pad=12)
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Login Count')
+    ax.tick_params(axis='x', rotation=45)
+    ax.grid(True, alpha=0.3)
+    ax.spines[['top', 'right']].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+
+# ── Section 2: People & Needs ──────────────────────────────────────────────
+
+def _gender_chart(users_df):
+    col = find_column(users_df, ['Sex', 'Gender'], contains=True)
+    if not col:
+        return None
+    counts = users_df[col].dropna().value_counts()
+    if counts.empty:
+        return None
+    fig = Figure(figsize=(7, 6))
+    ax = fig.add_subplot(111)
+    ax.pie(counts, labels=counts.index, autopct='%1.1f%%', startangle=90,
+           colors=[_BLUE, _RED, _GREEN, _PURPLE, _ORANGE])
+    ax.set_title('Sex Distribution', fontweight='bold', pad=12)
+    fig.tight_layout()
+    return fig
+
+
+def _age_chart(users_df):
+    col = find_column(users_df, ['Date of Birth', 'DOB'], contains=True)
+    if not col:
+        return None
+    df = users_df.copy()
+    df['DOB_Parsed'] = pd.to_datetime(df[col], errors='coerce')
+    df['Age'] = (pd.Timestamp.now() - df['DOB_Parsed']).dt.days // 365
+    ages = df['Age'].dropna()
+    if ages.empty:
+        return None
+    fig = Figure(figsize=(8, 5))
+    ax = fig.add_subplot(111)
+    ax.hist(ages, bins=10, color=_BLUE, edgecolor='white')
+    ax.set_title('Age Distribution', fontweight='bold', pad=12)
+    ax.set_xlabel('Age')
+    ax.set_ylabel('Users')
+    ax.spines[['top', 'right']].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+
+def _language_chart(users_df):
+    col = find_column(users_df,
+                      ['Primary Language', 'First Language', 'Main Language', 'Language'],
+                      contains=True)
+    if not col:
+        return None
+    counts = (users_df[col].dropna().astype(str).str.strip()
+              .pipe(lambda s: s[s != '']).value_counts().head(12))
+    if counts.empty:
+        return None
+    fig = Figure(figsize=(9, 5))
+    ax = fig.add_subplot(111)
+    ax.bar(counts.index.astype(str), counts.values, color=_PURPLE, edgecolor='white')
+    ax.set_title('Primary Language', fontweight='bold', pad=12)
+    ax.set_xlabel('Language')
+    ax.set_ylabel('Users')
+    ax.tick_params(axis='x', rotation=45)
+    ax.spines[['top', 'right']].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+
+def _dietary_chart(users_df):
+    col = find_column(users_df,
+                      ['Dietary Requirements', 'Dietary Requirement', 'Dietary'],
+                      contains=True)
+    if not col:
+        return None
+    series = (users_df[col].dropna().astype(str).str.strip()
+              .str.split(r'[;,/]').explode().str.strip())
+    series = series[series != '']
+    counts = series.value_counts().head(12)
+    if counts.empty:
+        return None
+    fig = Figure(figsize=(9, 5))
+    ax = fig.add_subplot(111)
+    ax.bar(counts.index.astype(str), counts.values, color=_ORANGE, edgecolor='white')
+    ax.set_title('Dietary Requirements', fontweight='bold', pad=12)
+    ax.set_xlabel('Requirement')
+    ax.set_ylabel('Users')
+    ax.tick_params(axis='x', rotation=45)
+    ax.spines[['top', 'right']].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+
+def _household_chart(users_df):
+    adult_col = find_column(users_df,
+                            ['Number of Adults in Household', 'Adults in Household', 'Adults'],
+                            contains=True)
+    child_col = find_column(users_df,
+                            ['Number of Children in Household', 'Children in Household', 'Children'],
+                            contains=True)
+    if not adult_col and not child_col:
+        return None
+
+    fig = Figure(figsize=(9, 5))
+    ax = fig.add_subplot(111)
+    legend_patches = []
+    all_keys = set()
+
+    if adult_col:
+        adults = pd.to_numeric(users_df[adult_col], errors='coerce').dropna()
+        adult_counts = adults.value_counts().sort_index()
+        all_keys.update(adult_counts.index.astype(int))
+
+    if child_col:
+        children = pd.to_numeric(users_df[child_col], errors='coerce').dropna()
+        child_counts = children.value_counts().sort_index()
+        all_keys.update(child_counts.index.astype(int))
+
+    sorted_keys = sorted(all_keys)
+    x = range(len(sorted_keys))
+    key_to_pos = {k: i for i, k in enumerate(sorted_keys)}
+
+    if adult_col:
+        adult_vals = [adult_counts.get(k, 0) for k in sorted_keys]
+        ax.bar([i - 0.2 for i in x], adult_vals, width=0.35, color=_BLUE, label='Adults')
+        legend_patches.append(mpatches.Patch(color=_BLUE, label='Adults'))
+
+    if child_col:
+        child_vals = [child_counts.get(k, 0) for k in sorted_keys]
+        ax.bar([i + 0.2 for i in x], child_vals, width=0.35, color=_RED, label='Children')
+        legend_patches.append(mpatches.Patch(color=_RED, label='Children'))
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels([str(k) for k in sorted_keys])
+    if legend_patches:
+        ax.legend(handles=legend_patches)
+    ax.set_title('Household Adults vs Children', fontweight='bold', pad=12)
+    ax.set_xlabel('Count in Household')
+    ax.set_ylabel('Households')
+    ax.spines[['top', 'right']].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+
+def _household_total_chart(users_df):
+    adult_col = find_column(users_df,
+                            ['Number of Adults in Household', 'Adults in Household', 'Adults'],
+                            contains=True)
+    child_col = find_column(users_df,
+                            ['Number of Children in Household', 'Children in Household', 'Children'],
+                            contains=True)
+    if not adult_col or not child_col or users_df.empty:
+        return None
+    adults   = pd.to_numeric(users_df[adult_col], errors='coerce')
+    children = pd.to_numeric(users_df[child_col], errors='coerce')
+    total    = adults.fillna(0) + children.fillna(0)
+    total    = total[~(adults.isna() & children.isna())]
+    if total.empty:
+        return None
+    counts = total.value_counts().sort_index()
+    fig = Figure(figsize=(8, 5))
+    ax = fig.add_subplot(111)
+    ax.bar(counts.index.astype(int).astype(str), counts.values, color=_GREEN, edgecolor='white')
+    ax.set_title('Total Household Size', fontweight='bold', pad=12)
+    ax.set_xlabel('Household Size')
+    ax.set_ylabel('Households')
+    ax.spines[['top', 'right']].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+
+# ── Section 3: Engagement & Outreach ──────────────────────────────────────
+
+def _new_vs_returning_chart(logins_df):
+    df = _parse_logins_timestamps(logins_df)
+    username_col = find_column(df, ['Username'], contains=False) if not df.empty else None
+    if df.empty or not username_col:
+        return None
+
+    df = df.dropna(subset=[username_col]).copy()
+    df['LoginDate'] = df['Parsed'].dt.date
+    first = df.groupby(username_col)['LoginDate'].min().rename('FirstDate')
+    df = df.join(first, on=username_col)
+    df['Status'] = df.apply(
+        lambda r: 'New' if r['LoginDate'] == r['FirstDate'] else 'Returning', axis=1
+    )
+
+    pivot = (df.groupby(['LoginDate', 'Status']).size()
+               .unstack(fill_value=0)
+               .sort_index())
+
+    new_vals = pivot.get('New',       pd.Series(0, index=pivot.index))
+    ret_vals = pivot.get('Returning', pd.Series(0, index=pivot.index))
+    labels   = [str(d) for d in pivot.index]
+    x        = list(range(len(pivot)))
+
+    fig = Figure(figsize=(11, 5))
+    ax = fig.add_subplot(111)
+    ax.bar(x, new_vals.values, color=_BLUE,  label='New')
+    ax.bar(x, ret_vals.values, color=_RED,   label='Returning', bottom=new_vals.values)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=45, ha='right')
+    ax.set_title('New vs Returning Logins', fontweight='bold', pad=12)
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Logins')
+    ax.legend()
+    ax.spines[['top', 'right']].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+
+# ── PDF builder ────────────────────────────────────────────────────────────
 
 def create_dashboard_pdf(users_df, logins_df):
     """
-    Builds a PDF report from the generated dashboard plots.
+    Builds a PDF with one section per dashboard tab.
+    Each section starts with a labelled divider page followed by its plots.
+    Plots that have no data are silently skipped.
     """
-    graphs = generate_dashboard_plots(users_df, logins_df)
-    buffer = io.BytesIO()
-
-    plot_order = [
-        ("gender_data", "Gender Distribution"),
-        ("age_data", "Age Distribution"),
-        ("login_data", "Login Activity (Last 3 Active Days)"),
-        ("registration_data", "Registration Activity (Last 3 Active Days)"),
-        ("ethnicity_data", "Ethnicity Distribution"),
-        ("work_data", "Right to Work Status"),
-        ("referral_data", "Referral Sources"),
-        ("contact_data", "Contact Agreement"),
-        ("login_data_fin", "Login Activity Total"),
-        ("english_data", "English Speaking Ability"),
+    sections = [
+        {
+            "title": "Overview",
+            "plots": [
+                _registrations_trend(users_df),
+                _logins_trend(logins_df),
+            ],
+        },
+        {
+            "title": "People & Needs",
+            "plots": [
+                _gender_chart(users_df),
+                _age_chart(users_df),
+                _language_chart(users_df),
+                _dietary_chart(users_df),
+                _household_chart(users_df),
+                _household_total_chart(users_df),
+            ],
+        },
+        {
+            "title": "Engagement & Outreach",
+            "plots": [
+                _new_vs_returning_chart(logins_df),
+            ],
+        },
     ]
 
+    buffer = io.BytesIO()
     with PdfPages(buffer) as pdf:
-        for key, title in plot_order:
-            if key not in graphs:
+        for section in sections:
+            plots = [p for p in section["plots"] if p is not None]
+            if not plots:
                 continue
-            img_bytes = base64.b64decode(graphs[key])
-            img = mpimg.imread(io.BytesIO(img_bytes), format="png")
-
-            fig = Figure(figsize=(8.5, 6.5))
-            ax = fig.add_subplot(111)
-            ax.imshow(img)
-            ax.set_title(title)
-            ax.axis("off")
-            fig.tight_layout()
-            pdf.savefig(fig)
+            _save(_section_page(section["title"]), pdf)
+            for fig in plots:
+                _save(fig, pdf)
 
     buffer.seek(0)
     return buffer

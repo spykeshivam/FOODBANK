@@ -1,9 +1,21 @@
+import re
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime, timedelta
 import calendar
 from flask_caching import Cache
+from services.dashboard_utils import parse_timestamps
+
+# Valid UK postcode pattern (case-insensitive)
+_POSTCODE_RE = re.compile(
+    r'^[A-Z]{1,2}[0-9][0-9A-Z]?\s[0-9][ABD-HJLNP-UW-Z]{2}$',
+    re.IGNORECASE
+)
+
+def validate_postcode(postcode):
+    """Returns True if postcode matches the UK postcode format."""
+    return bool(_POSTCODE_RE.match((postcode or "").strip()))
 
 # BEST PRACTICE: Import configuration from the separate config file
 import config
@@ -75,11 +87,13 @@ def get_user_details(user_id):
         last_date = "No Last Login Date Found"
         if not user_logins.empty:
             last_entry = user_logins.iloc[-1]
-            last_date = f"{last_entry['Timestamp']} {last_entry['Day']}" #
+            last_date = f"{last_entry.get('Timestamp', 'N/A')} {last_entry.get('Day', '')}".strip()
 
+        postcode = user_data.get("Postcode", "")
         return {
             "message": f"User ID '{user_id}' exists!",
             "exists": True,
+            "postcode_valid": validate_postcode(postcode),
             "details": {
                 "First Name": user_data.get("First Name", ""),
                 "Last Name": user_data.get("Surname", ""),
@@ -135,8 +149,7 @@ def append_login(user_id):
                 else:
                     print("[DEBUG] PASSED: Last login was > 5 mins ago.")
             except Exception as e:
-                print(f"[DEBUG] Timestamp parse warning (ignoring): {e}")
-                pass
+                print(f"[DEBUG] Timestamp parse error, skipping duplicate check: {e}")
         else:
             print("[DEBUG] No previous logins found for this user.")
 
@@ -169,7 +182,7 @@ def perform_search(search_type, name="", postcode="", dob=""):
     results = []
 
     if users_df.empty:
-         return [], "No data available."
+        return [], "No data available."
 
     filtered = pd.DataFrame()
 
@@ -192,27 +205,57 @@ def perform_search(search_type, name="", postcode="", dob=""):
         return [], "No results found."
 
     for _, row in filtered.iterrows():
-        res_str = f"{row['First Name']} {row['Surname']} - {row.get('Postcode', 'N/A')} - {row['Date of Birth']} - Username: {row.get('Username', 'NULL Username')}"
+        first_name = row.get('First Name', 'Unknown')
+        surname = row.get('Surname', 'Unknown')
+        postcode = row.get('Postcode', 'N/A')
+        dob = row.get('Date of Birth', 'Unknown')
+        username = row.get('Username', 'NULL Username')
+        res_str = f"{first_name} {surname} - {postcode} - {dob} - Username: {username}"
         results.append(res_str)
 
     return results, None
 
-def get_login_count_for_date(date_str):
-    """Parses date and counts logins."""
-    _, logins_df = get_all_data_frames()
-    
+def update_postcode(user_id, new_postcode):
+    """
+    Finds the user's row in the registrations sheet and updates their Postcode cell.
+    Returns (success: bool, message: str).
+    """
+    if not validate_postcode(new_postcode):
+        return False, "Invalid postcode format."
+
+    normalised = new_postcode.strip().upper()
+    # Ensure exactly one space between outward and inward codes
+    normalised = re.sub(r'\s+', ' ', normalised)
+
     try:
-        query_date = datetime.strptime(date_str, "%d/%m/%Y").date()
-        
-        logins_df['Parsed'] = pd.to_datetime(logins_df['Timestamp'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
-        logins_df['Parsed'] = logins_df['Parsed'].fillna(pd.to_datetime(logins_df['Timestamp'], format='%m/%d/%Y %H:%M:%S', errors='coerce'))
-        
-        logins_df = logins_df.dropna(subset=['Parsed'])
-        logins_df['Date'] = logins_df['Parsed'].dt.date
-        
-        count = logins_df[logins_df['Date'] == query_date].shape[0]
-        return count
-    except ValueError:
-        return f"Invalid date format: {date_str}. Please use dd/mm/yyyy."
+        client = get_client()
+        sheet = client.open_by_key(config.SHEET_ID).sheet1
+        all_values = sheet.get_all_values()
+
+        if not all_values:
+            return False, "Registration sheet is empty."
+
+        headers = all_values[0]
+
+        try:
+            postcode_col = headers.index('Postcode') + 1   # 1-indexed
+        except ValueError:
+            return False, "Postcode column not found in sheet."
+
+        try:
+            username_col = headers.index('Username') + 1
+        except ValueError:
+            return False, "Username column not found in sheet."
+
+        for row_idx, row in enumerate(all_values[1:], start=2):
+            if len(row) >= username_col and row[username_col - 1].strip() == user_id:
+                sheet.update_cell(row_idx, postcode_col, normalised)
+                cache.delete('all_data')
+                return True, "Postcode updated successfully."
+
+        return False, "User not found in registrations sheet."
+
     except Exception as e:
-        return f"An error occurred: {str(e)}"
+        return False, f"Server error: {str(e)}"
+
+

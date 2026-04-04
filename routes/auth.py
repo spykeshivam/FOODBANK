@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 from services import data_service
 
 auth_bp = Blueprint('auth', __name__)
@@ -52,3 +52,24 @@ def log_login():
             )
     
     return jsonify({"message": "Login Error: No ID provided", "success": False})
+
+
+@auth_bp.route("/update_postcode", methods=["GET", "POST"])
+def update_postcode():
+    """
+    GET  — show the postcode correction form (user_id passed as query param).
+    POST — validate and save the new postcode, then redirect back to login.
+    """
+    if request.method == "GET":
+        user_id = request.args.get("user_id", "").strip()
+        return render_template("update_postcode.html", user_id=user_id, error=None)
+
+    user_id = request.form.get("user_id", "").strip()
+    new_postcode = request.form.get("postcode", "").strip()
+
+    success, message = data_service.update_postcode(user_id, new_postcode)
+
+    if success:
+        return redirect(url_for("auth.index"))
+
+    return render_template("update_postcode.html", user_id=user_id, error=message)

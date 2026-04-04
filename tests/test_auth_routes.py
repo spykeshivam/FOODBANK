@@ -8,6 +8,7 @@ def test_check_user_known(client, monkeypatch):
         lambda _user_id: {
             "message": "User ID 'abc' exists!",
             "exists": True,
+            "postcode_valid": True,
             "details": {"First Name": "A", "Last Name": "B", "Last Login Date": "Today"},
             "show_login_button": True,
         },
