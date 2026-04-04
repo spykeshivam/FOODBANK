@@ -10,6 +10,8 @@ LOGIN_SHEET_ID = os.getenv("LOGIN_SHEET_ID", "1o1OPr8DEDXs11BAUR9TalDFKa0EAd5m28
 # contents of credentials.json. Locally the file is read directly.
 _creds_b64 = os.getenv("GOOGLE_CREDENTIALS_B64")
 if _creds_b64:
+    # Add padding in case it was stripped during copy-paste
+    _creds_b64 += "=" * (-len(_creds_b64) % 4)
     _tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="wb")
     _tmp.write(base64.b64decode(_creds_b64))
     _tmp.close()

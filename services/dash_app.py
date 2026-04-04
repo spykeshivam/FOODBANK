@@ -374,8 +374,65 @@ def _area_distribution(users_df):
     return _apply_layout(fig, title=title, x_label="Outward Code", y_label="Visitors")
 
 
-def _household_adults_children(users_df):
-    title = "Household Size: Adults vs Children"
+def _children_age_brackets(users_df, logins_df):
+    title = "Children's Age Brackets per Month"
+    if users_df.empty or logins_df.empty:
+        return _empty_figure(title)
+    if USERNAME_COL not in users_df.columns or LOGINS_PARSED_COL not in logins_df.columns:
+        return _empty_figure(title)
+
+    import re as _re
+    age_bracket_cols = [
+        c for c in users_df.columns
+        if _re.search(r'children', c, _re.IGNORECASE)
+        and _re.search(r'age', c, _re.IGNORECASE)
+    ]
+    if not age_bracket_cols:
+        return _empty_figure(title)
+
+    for c in age_bracket_cols:
+        users_df = users_df.copy()
+        users_df[c] = pd.to_numeric(users_df[c], errors="coerce").fillna(0)
+
+    merged = logins_df.merge(
+        users_df[[USERNAME_COL] + age_bracket_cols],
+        on=USERNAME_COL,
+        how="left",
+    ).dropna(subset=[LOGINS_PARSED_COL])
+
+    merged["MonthStr"] = merged[LOGINS_PARSED_COL].dt.to_period("M").astype(str)
+    monthly = merged.groupby("MonthStr")[age_bracket_cols].sum().sort_index()
+
+    if monthly.empty:
+        return _empty_figure(title)
+
+    # Shorten column names — strip common prefix, keep bracket part e.g. "Under 5"
+    common = age_bracket_cols[0]
+    for c in age_bracket_cols[1:]:
+        while not c.startswith(common):
+            common = common[:-1]
+            if not common:
+                break
+    short = {c: c[len(common):].strip(" -–[]") or c for c in age_bracket_cols}
+    monthly = monthly.rename(columns=short)
+    bracket_labels = list(short.values())
+
+    fig = go.Figure()
+    colours = ["#636EFA", "#EF553B", "#00CC96", "#AB63FA"]
+    for i, col in enumerate(bracket_labels):
+        fig.add_bar(
+            x=monthly.index.tolist(),
+            y=monthly[col].values,
+            name=col,
+            marker_color=colours[i % len(colours)],
+        )
+    fig.update_layout(barmode="stack")
+    fig.update_xaxes(type="category", tickangle=45)
+    return _apply_layout(fig, title=title, x_label="Month", y_label="Children (sum across visits)")
+
+
+def _household_total(users_df):
+    title = "Total Household Size"
     adult_col = find_column(
         users_df,
         ["Number of Adults in Household", "Adults in Household", "Adults"],
@@ -386,42 +443,6 @@ def _household_adults_children(users_df):
         ["Number of Children in Household", "Children in Household", "Children"],
         contains=True,
     )
-
-    if not adult_col and not child_col:
-        return _empty_figure(title), adult_col, child_col
-
-    fig = go.Figure()
-
-    if adult_col:
-        adults = pd.to_numeric(users_df[adult_col], errors="coerce").dropna()
-        adult_counts = adults.value_counts().sort_index()
-        if not adult_counts.empty:
-            fig.add_bar(
-                x=adult_counts.index.astype(int).astype(str),
-                y=adult_counts.values,
-                name="Adults",
-            )
-
-    if child_col:
-        children = pd.to_numeric(users_df[child_col], errors="coerce").dropna()
-        child_counts = children.value_counts().sort_index()
-        if not child_counts.empty:
-            fig.add_bar(
-                x=child_counts.index.astype(int).astype(str),
-                y=child_counts.values,
-                name="Children",
-            )
-
-    if not fig.data:
-        return _empty_figure(title), adult_col, child_col
-
-    fig.update_layout(barmode="group")
-    fig.update_xaxes(type="category")
-    return _apply_layout(fig, title=title, x_label="Count in Household", y_label="Households"), adult_col, child_col
-
-
-def _household_total(users_df, adult_col, child_col):
-    title = "Total Household Size"
     if not adult_col or not child_col or users_df.empty:
         return _empty_figure(title)
 
@@ -728,9 +749,9 @@ def init_dashboard_dash(server):
                                         "Dietary needs reported by users (split for multi-select).",
                                     ),
                                     _graph_card(
-                                        "household-chart",
-                                        "Household Adults vs Children",
-                                        "Distribution of adult and child counts per household.",
+                                        "children-age-brackets-chart",
+                                        "Children's Age Brackets per Month",
+                                        "Monthly stacked count of children by age bracket, weighted by login visits.",
                                     ),
                                     _graph_card(
                                         "household-total-chart",
@@ -871,13 +892,15 @@ def init_dashboard_dash(server):
         Output("age-chart", "figure"),
         Output("language-chart", "figure"),
         Output("dietary-chart", "figure"),
-        Output("household-chart", "figure"),
+        Output("children-age-brackets-chart", "figure"),
         Output("household-total-chart", "figure"),
         Output("area-chart", "figure"),
         Input("users-store", "data"),
+        Input("logins-store", "data"),
     )
-    def update_people_needs(users_payload):
+    def update_people_needs(users_payload, logins_payload):
         users_df = _deserialize_df(users_payload)
+        logins_df = _deserialize_df(logins_payload)
 
         gender_col = find_column(users_df, ["Sex", "Gender"], contains=True)
         gender_fig = _value_counts_chart(users_df, gender_col, "Sex Distribution", chart_type="pie")
@@ -899,8 +922,8 @@ def init_dashboard_dash(server):
             split_multi=True,
         )
 
-        household_fig, adult_col, child_col = _household_adults_children(users_df)
-        household_total_fig = _household_total(users_df, adult_col, child_col)
+        children_age_fig = _children_age_brackets(users_df, logins_df)
+        household_total_fig = _household_total(users_df)
         area_fig = _area_distribution(users_df)
 
         return (
@@ -908,7 +931,7 @@ def init_dashboard_dash(server):
             age_fig,
             language_fig,
             dietary_fig,
-            household_fig,
+            children_age_fig,
             household_total_fig,
             area_fig,
         )

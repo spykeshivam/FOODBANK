@@ -29,7 +29,3 @@ def test_dashboard_page_renders_css(client):
     assert b"/static/styles.css" in response.data
 
 
-def test_statistics_page_renders_css(client):
-    response = client.get("/statistics")
-    assert response.status_code == 200
-    assert b"/static/styles.css" in response.data

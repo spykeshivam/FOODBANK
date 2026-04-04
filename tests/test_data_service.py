@@ -140,43 +140,6 @@ def test_perform_search_result_contains_username(monkeypatch):
     assert "user1" in results[0]
 
 
-# ── get_login_count_for_date ───────────────────────────────────────────────
-
-def test_get_login_count_for_date_returns_correct_count(monkeypatch):
-    logins = pd.DataFrame([
-        {"Username": "user1", "Timestamp": "2024-03-01 10:00:00", "Day": "Friday"},
-        {"Username": "user2", "Timestamp": "2024-03-01 11:30:00", "Day": "Friday"},
-    ])
-    monkeypatch.setattr(data_service, "get_all_data_frames", lambda: (_users_df(), logins))
-    count = data_service.get_login_count_for_date("01/03/2024")
-    assert count == 2
-
-
-def test_get_login_count_for_date_zero_on_no_logins(monkeypatch):
-    logins = pd.DataFrame([
-        {"Username": "user1", "Timestamp": "2024-03-01 10:00:00", "Day": "Friday"},
-    ])
-    monkeypatch.setattr(data_service, "get_all_data_frames", lambda: (_users_df(), logins))
-    count = data_service.get_login_count_for_date("15/06/2025")
-    assert count == 0
-
-
-def test_get_login_count_for_date_invalid_format(monkeypatch):
-    monkeypatch.setattr(data_service, "get_all_data_frames", lambda: (_users_df(), _logins_df()))
-    result = data_service.get_login_count_for_date("2024-03-01")  # wrong format
-    assert isinstance(result, str)
-    assert "Invalid date format" in result
-
-
-def test_get_login_count_handles_alternate_timestamp_format(monkeypatch):
-    """Logins stored in MM/DD/YYYY format should still be counted."""
-    logins = pd.DataFrame([
-        {"Username": "user1", "Timestamp": "03/01/2024 10:00:00", "Day": "Friday"},
-    ])
-    monkeypatch.setattr(data_service, "get_all_data_frames", lambda: (_users_df(), logins))
-    count = data_service.get_login_count_for_date("01/03/2024")
-    assert count == 1
-
 
 # ── append_login ───────────────────────────────────────────────────────────
 

@@ -1,5 +1,6 @@
 # Secrets — never commit these
 credentials.json
+base64.txt
 
 # Python
 __pycache__/
