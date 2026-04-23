@@ -1,0 +1,18 @@
+[project]
+name = "foodbank-revamp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dash>=4.1.0",
+    "flask>=3.1.3",
+    "flask-caching>=2.4.0",
+    "google-auth>=2.49.2",
+    "gspread>=6.2.1",
+    "matplotlib>=3.10.8",
+    "pandas>=3.0.2",
+    "plotly>=6.7.0",
+    "pytest>=9.0.3",
+    "streamlit>=1.56.0",
+]
